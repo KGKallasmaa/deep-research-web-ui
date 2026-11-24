@@ -674,14 +674,21 @@ describe('keenable provider', () => {
 
   it('reads a source page as markdown through the fetch endpoint', async () => {
     const previous = globalThis.fetch
-    const requests: { url: URL; headers: Record<string, string> }[] = []
+    const requests: { url: URL; headers: Record<string, string>; method?: string; body?: string }[] = []
     globalThis.fetch = (async (input: any, init?: any) => {
-      requests.push({ url: new URL(String(input)), headers: init?.headers ?? {} })
+      requests.push({
+        url: new URL(String(input)),
+        headers: init?.headers ?? {},
+        method: init?.method,
+        body: init?.body,
+      })
       return Response.json({
-        url: 'https://example.com/final',
-        title: 'Page',
-        content: '# Page\n\nBody',
-        truncated: false,
+        results: [{
+          url: 'https://example.com/final',
+          title: 'Page',
+          content: '# Page\n\nBody',
+          truncated: false,
+        }],
       })
     }) as typeof fetch
     try {
@@ -691,7 +698,9 @@ describe('keenable provider', () => {
         requests[0]?.url.origin + requests[0]!.url.pathname,
         'https://api.keenable.ai/v1/fetch/public',
       )
-      assert.equal(requests[0]?.url.searchParams.get('url'), 'https://example.com/a')
+      assert.equal(requests[0]?.url.search, '')
+      assert.equal(requests[0]?.method, 'POST')
+      assert.deepEqual(JSON.parse(requests[0]!.body!), { urls: ['https://example.com/a'] })
       assert.equal(requests[0]?.headers['X-Keenable-Title'], 'deep-research-web-ui')
       assert.deepEqual(page, {
         url: 'https://example.com/a',
@@ -703,12 +712,14 @@ describe('keenable provider', () => {
 
       await createReadSource({ provider: 'keenable', apiKey: 'k' })!('https://example.com/b', {})
       assert.equal(requests[1]?.url.pathname, '/v1/fetch')
+      assert.equal(requests[1]?.method, 'POST')
+      assert.deepEqual(JSON.parse(requests[1]!.body!), { urls: ['https://example.com/b'] })
       assert.equal(requests[1]?.headers['X-API-Key'], 'k')
     } finally {
       globalThis.fetch = previous
     }
 
-    globalThis.fetch = (async () => Response.json({ content: '  ' })) as typeof fetch
+    globalThis.fetch = (async () => Response.json({ results: [{ content: '  ' }] })) as typeof fetch
     try {
       assert.equal(
         await createReadSource({ provider: 'keenable' })!('https://example.com', {}),

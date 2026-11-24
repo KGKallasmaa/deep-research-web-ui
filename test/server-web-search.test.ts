@@ -116,7 +116,7 @@ it('uses keyless Keenable search and source reading without a key pool when no k
   globalThis.fetch = async (input, init) => {
     requests.push({ url: new URL(String(input)), headers: new Headers(init?.headers) })
     return requests.at(-1)!.url.pathname.startsWith('/v1/fetch')
-      ? Response.json({ url: 'https://example.com', content: 'Page body' })
+      ? Response.json({ results: [{ url: 'https://example.com', content: 'Page body' }] })
       : Response.json({ results: [{ url: 'https://example.com', snippet: 'Result' }] })
   }
   try {

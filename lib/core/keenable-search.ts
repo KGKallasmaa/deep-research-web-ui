@@ -8,13 +8,13 @@ import type { WebSearchResult } from '~~/shared/types/types'
  * Keenable search and page reading.
  *
  * Two endpoint pairs, selected by the presence of an API key:
- * - Keyed: `POST /v1/search` and `GET /v1/fetch` with `X-API-Key`
- * - Keyless: `POST /v1/search/public` and `GET /v1/fetch/public` with an
+ * - Keyed: `POST /v1/search` and `POST /v1/fetch` with `X-API-Key`
+ * - Keyless: `POST /v1/search/public` and `POST /v1/fetch/public` with an
  *   `X-Keenable-Title` header naming the app (shared per-IP limit)
  *
  * Search returns `{ results: [{ url, title, description, snippet, published_at }] }`;
- * fetch returns `{ url, title, content }` with the page as markdown.
- * Ref: https://docs.keenable.ai/api-reference
+ * fetch returns `{ results: [{ url, title, content }] }` with the page as markdown.
+ * Ref: https://docs.keenable.ai/api-reference/fetch-post
  */
 const KEENABLE_API_BASE = 'https://api.keenable.ai/v1'
 const KEENABLE_APP_TITLE = 'deep-research-web-ui'
@@ -152,22 +152,34 @@ export async function searchWithKeenable(
 export function createKeenableReadSource(config: WebSearchConfig): ReadSourceFunction {
   return async (url, { signal }) => {
     const apiKey = config.apiKey?.trim() || undefined
-    const apiUrl = new URL(endpoint('fetch', apiKey))
-    apiUrl.searchParams.set('url', url)
     const doFetch = config.fetch ?? fetch
     const requestSignal = AbortSignal.any([
       AbortSignal.timeout(READ_TIMEOUT_MS),
       ...(signal ? [signal] : []),
     ])
     const response = await abortable(
-      doFetch(apiUrl, { headers: headers(apiKey), signal: requestSignal }),
+      doFetch(endpoint('fetch', apiKey), {
+        method: 'POST',
+        headers: { ...headers(apiKey), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urls: [url] }),
+        signal: requestSignal,
+      }),
       signal,
     )
     if (!response.ok) {
       throw httpError(`Keenable fetch failed: ${await errorMessage(response)}`, response.status)
     }
-    const data = (await response.json()) as { url?: string; title?: string; content?: string }
-    if (!data.content?.trim()) return undefined
+    const body = (await response.json()) as {
+      results?: { url?: string; title?: string; content?: string; error?: { message?: string; error?: string } }[]
+    }
+    const data = body.results?.[0]
+    if (data?.error) {
+      throw httpError(
+        `Keenable fetch failed: ${data.error.message || data.error.error || 'page error'}`,
+        502,
+      )
+    }
+    if (!data?.content?.trim()) return undefined
     return {
       url,
       finalUrl: data.url ?? url,
